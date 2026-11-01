@@ -90,6 +90,32 @@ def result_tables(numbers: dict) -> dict[str, str]:
         rows += [f"| {k.replace('_', ' ')} | {v['frozen_only']} | {v['other_only']} | {v['p_exact']:.3f} |"
                  for k, v in ca["mcnemar_vs_frozen_on_positives"].items()]
         out["s9_patient_message_secondary.md"] = "\n".join(rows) + "\n"
+    s = numbers.get("_sensitivity")
+    if s:
+        rows = ["| Analysis | Grader or set | Result |", "| :-- | :-- | :-- |"]
+        for g, lab in (("grader1", "Reference grader"), ("grader2", "Second grader")):
+            r = s["repeats"][g]
+            for k, (d, lo, hi) in enumerate(r["single_reply_diffs"], 1):
+                rows.append(f"| COMPASS minus LLM alone, reply {k} only (95% CI) | {lab} | {d:+.3f} ({lo:+.3f} to {hi:+.3f}) |")
+            rows.append(f"| Mean within-conversation SD of score across 3 replies, COMPASS / LLM alone | {lab} | "
+                        f"{r['mean_within_sd']['ai_pcp_v3']:.3f} / {r['mean_within_sd']['raw_llm']:.3f} |")
+        for g, lab in (("grader1", "Reference grader"), ("grader2", "Second grader")):
+            e = s["equivalence"][g]
+            rows.append(f"| COMPASS minus MAI-DxO-style panel, 90% CI; equivalent within 0.02 | {lab} | {e['diff']:+.3f} "
+                        f"({e['ci90'][0]:+.3f} to {e['ci90'][1]:+.3f}); {'yes' if e['equivalent'] else 'no'} |")
+        pb = s["physician_blinding"]
+        rows.append(f"| Physician score, COMPASS minus LLM alone, items without care-team or nurse mention (95% CI) | "
+                    f"{pb['n_items']} items ({pb['n_excluded']} excluded) | {pb['diff'][0]:+.3f} ({pb['diff'][1]:+.3f} to {pb['diff'][2]:+.3f}) |")
+        po = s["patient_overlap"]
+        rows.append(f"| Hazard sensitivity, sealed messages from patients with no tuning-half message (Wilson 95% CI) | "
+                    f"{po['n_messages']} messages ({po['n_excluded']} excluded) | {po['caught']} of {po['positives']}, "
+                    f"{po['sensitivity']:.3f} ({po['wilson95'][0]:.3f} to {po['wilson95'][1]:.3f}); emergency messages "
+                    f"{po['call_911_caught']} of {po['call_911']} |")
+        rows += ["", "| HealthBench theme | Conversations | COMPASS minus LLM alone, reference grader | COMPASS minus LLM alone, second grader |",
+                 "| :-- | :-- | :-- | :-- |"]
+        for th, v in s["by_theme"]["grader1"].items():
+            rows.append(f"| {th.replace('_', ' ')} | {v['n']} | {v['diff']:+.3f} | {s['by_theme']['grader2'][th]['diff']:+.3f} |")
+        out["s14_sensitivity.md"] = "\n".join(rows) + "\n"
     return out
 
 

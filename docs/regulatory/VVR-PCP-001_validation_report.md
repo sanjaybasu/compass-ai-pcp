@@ -22,22 +22,23 @@ This report gives the results of the validation in VVP-PCP-001. Every number com
 
 | Item | Value | Source |
 | :-: | :-: | :-: |
-| Architecture commit | [TO FILL] | freeze file `architecture_commit` |
-| Compass commit | [TO FILL] | freeze file `compass_commit` |
-| Thresholds SHA-256 | [TO FILL] | freeze file `thresholds_sha256` |
-| Test-set SHA-256 and n | [TO FILL] | freeze file `test_set.set_sha256`, `test_set.n` |
-| Freeze created (UTC) | [TO FILL] | freeze file `created_utc` |
-| OSF registration | [TO FILL] | OSF |
-| `prereg.py::verify` result before each run | [TO FILL] | run log |
-| pytest result at frozen commit | [TO FILL] | RTM-PCP-001 |
-| Model ids and versions per role | [TO FILL] | `SystemOutput.versions`; SOUP-PCP-001 |
-| Run dates | [TO FILL] | run log |
+| Architecture commit | 32b907dceb6b | freeze file `architecture_commit` |
+| Compass commit | 67952319dda9 | freeze file `compass_commit` |
+| Thresholds SHA-256 | d1ed0aca06dc40fc… (both test sets) | freeze file `thresholds_sha256` |
+| Test-set SHA-256 and n | HealthBench Consensus test 22c13f2b1e3b12cb…, n = 2,928; Cohort A sealed half 76a8b7e1182f464c…, n = 999 | freeze file `test_set.set_sha256`, `test_set.n` |
+| Freeze created (UTC) | 2026-10-28 23:45:00 | freeze file `created_utc` |
+| OSF registration | aypqk, registered 2026-10-28 23:45:42 UTC, approved 2026-10-30; https://doi.org/10.17605/OSF.IO/AYPQK | OSF |
+| `prereg.py::verify` result before each run | Passed for every run (access log and run logs); later runs accepted only changes listed in DEVIATIONS.json | run log |
+| pytest result at frozen commit | 121 passed (freeze/pytest_at_freeze.txt) | RTM-PCP-001 |
+| Model ids and versions per role | Dialogue and comparators: anthropic:claude-opus-5-5; second extractor: google:gemini-3.8-flash; LLM hazard screen: anthropic:claude-sonnet-5-5; local judge: kev-4b@v1.0; reference grader: openai:gpt-4.1-2025-04-14; second grader: google:gemini-3.1-pro-preview (thinking LOW) | `SystemOutput.versions`; SOUP-PCP-001 |
+| Run dates | Cohort A sealed half 2026-10-28; HealthBench test 2026-10-28 to 2026-10-31 | run log |
 
 # 3. DEVIATIONS
 
 | ID | Date | Description | Impact | Disposition | QA approval |
 | :-: | :-: | :-: | :-: | :-: | :-: |
-| DEV-PCP-[NNN] | [TO FILL] | [TO FILL] | [TO FILL] | [TO FILL] | [TO FILL] |
+| DEV-PCP-001 (D1) | 2026-10-29 | Guardrail comparator sent an empty draft to its output check; it now returns its clinician handoff for an empty draft (`compass_pcp/arms/baselines.py`, `harness/frozen.py`) | Guardrail comparator only; no existing reply changed | Logged with blob hashes in DEVIATIONS.json | [TO FILL] |
+| DEV-PCP-002 (D2) | 2026-10-30 | Second grader blocked one grading prompt and returned no text; three empty replies now score the item as not met (`scripts/run_healthbench.py`) | Second grader only; no reply or reference-grader label changed | Logged with blob hash in DEVIATIONS.json | [TO FILL] |
 
 # 4. COHORT FLOW AND CHARACTERISTICS
 
@@ -76,6 +77,23 @@ Source for each row: `runs/<configuration>.jsonl`, adjudication labels, and the 
 | VE-C3 | Escalation and deferral on controls | [ ] / [ ] | [ ] | [ ] | Report | — |
 | VE-HB1 | Consensus critical behaviors vs `raw_llm` | per behavior (Section 8) | [ ] | [ ] | Not worse on any | [ ] |
 | VE-I1 | Gatekeeper leakage; fabrication | [ ] / 100; [ ] / 100 | [ ] | [ ] | Each < 2% | [ ] |
+
+## 5.0 Results executed in this report (Cohort A sealed half and HealthBench test)
+
+Cohorts B, C and D, and endpoints VE-A1 to VE-A3, VE-C1 to VE-C3 and VE-I1, are not executed in this report; their rows above remain open.
+
+| ID | Endpoint | Numerator / denominator | Estimate | 95% interval | Criterion | Pass / fail |
+| :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+| VE-A4 | Safety-hazard sensitivity of the frozen hazard screens, sealed half | 19 / 25 | 0.760 (95% CI, 0.566 to 0.885) | Wilson | 0 missed Call 911/988 and lower bound ≥ 0.80 (≥ 24 of 25) | Fail |
+| VE-A4 | Call 911/988 messages flagged | 5 / 5 | all flagged at urgent same-day tier or higher; 1 at possible-emergency tier; 0 at emergency tier | Wilson lower 0.566 | 0 missed | Met |
+| VE-A5 | Coordination coverage | 38 / 57 | | | Report | — |
+| HB1 | Consensus criterion pass rate, COMPASS minus raw_llm | 2,928 conversations | -0.001 (95% CI, -0.011 to +0.008) | bootstrap | Non-inferior, margin 0.02 | Met |
+| HB2 | HealthBench score vs raw_llm (reference grader) | 2,928 | +0.008 (95% CI, +0.002 to +0.014) | bootstrap | Superiority, Holm | Met under reference grader; reversed under second grader (-0.008 (95% CI, -0.014 to -0.002)) |
+| HB3 | vs llm_standard_guardrails | 2,928 | +0.067 (95% CI, +0.057 to +0.077) | bootstrap | Superiority, Holm | Met |
+| HB4 | vs amie_style | 2,928 | +0.025 (95% CI, +0.018 to +0.033) | bootstrap | Superiority, Holm | Met |
+| HB5 | vs mai_dxo_style | 2,928 | +0.002 (95% CI, -0.004 to +0.007) | bootstrap | Superiority, Holm | Not met |
+
+Physician check (100 conversations, 2 physicians): COMPASS minus raw_llm +0.023 (95% CI, -0.017 to +0.064). Full results, tables and figures: manuscript package in notebooks/compass-ai-pcp/manuscript (CANONICAL_NUMBERS.json, verified by paper/verify_canonical.py).
 
 ## 5.1 Cohort B per lane
 

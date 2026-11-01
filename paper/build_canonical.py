@@ -198,6 +198,32 @@ def tier_numbers(per_message: Path) -> dict:
             "ca_911_now": str(sum(x >= 4 for x in e)), "ca_safety_urgent": str(sum(x >= 2 for x in s))}
 
 
+def sensitivity_numbers(s: dict) -> dict:
+    """Post hoc sensitivity analyses (paper/sensitivity.py; Supplementary Section S14)."""
+    out: dict = {"_sensitivity": s}
+    r1, r2 = s["repeats"]["grader1"], s["repeats"]["grader2"]
+    rng = lambda r: f"{min(x[0] for x in r['single_reply_diffs']):+.3f} to {max(x[0] for x in r['single_reply_diffs']):+.3f}"
+    out["sens_rep_g1"], out["sens_rep_g2"] = rng(r1), rng(r2)
+    out["sens_rep_sd_final"] = f"{r1['mean_within_sd']['ai_pcp_v3']:.3f}"
+    out["sens_rep_sd_raw"] = f"{r1['mean_within_sd']['raw_llm']:.3f}"
+    t1, t2 = s["by_theme"]["grader1"], s["by_theme"]["grader2"]
+    for th in ("context_seeking", "complex_responses", "hedging"):
+        out[f"sens_theme_{th}_g1"], out[f"sens_theme_{th}_g2"] = f"{t1[th]['diff']:+.3f}", f"{t2[th]['diff']:+.3f}"
+    for g in ("grader1", "grader2"):
+        e = s["equivalence"][g]
+        out[f"sens_eq_{g}"] = f"{e['diff']:+.3f} (90% CI, {e['ci90'][0]:+.3f} to {e['ci90'][1]:+.3f})".replace("+0.000", "0.000").replace("-0.000", "0.000")
+    both = all(s["equivalence"][g]["equivalent"] for g in ("grader1", "grader2"))
+    out["sens_eq_verb"] = "fell within the margin under both graders" if both else "did not fall within the margin under both graders"
+    pb = s["physician_blinding"]
+    out["sens_phys_n"], out["sens_phys_excl"] = str(pb["n_items"]), str(pb["n_excluded"])
+    out["sens_phys_diff"] = diff(*pb["diff"])
+    po = s["patient_overlap"]
+    out["sens_ovl_excl"], out["sens_ovl_n"] = str(po["n_excluded"]), str(po["n_messages"])
+    out["sens_ovl_sens"] = f"{po['caught']} of {po['positives']} ({po['sensitivity']:.3f}; 95% CI, {po['wilson95'][0]:.3f} to {po['wilson95'][1]:.3f})"
+    out["sens_ovl_911"] = f"{po['call_911_caught']} of {po['call_911']}"
+    return out
+
+
 def render(template: str, numbers: dict, prose: dict, base: Path | None = None) -> str:
     """Fill {{key}} from the canonical numbers and prose, and {{include:relative/path.md}} from generated files."""
     def include(m):
@@ -240,6 +266,7 @@ def main() -> None:
     ap.add_argument("--physician", type=Path)
     ap.add_argument("--hazard-dev", type=Path)
     ap.add_argument("--physician-packet", type=Path)
+    ap.add_argument("--sensitivity", type=Path)
     ap.add_argument("--freeze-dir", type=Path, required=True)
     ap.add_argument("--manuscript-dir", type=Path, required=True)
     ap.add_argument("--prose", type=Path)
@@ -254,6 +281,8 @@ def main() -> None:
         numbers.update(physician_numbers(json.loads(args.physician.read_text())))
     if args.physician_packet and (args.physician_packet / "physician_key.json").exists():
         numbers.update(blinding_numbers(args.physician_packet))
+    if args.sensitivity and args.sensitivity.exists():
+        numbers.update(sensitivity_numbers(json.loads(args.sensitivity.read_text())))
     if args.hazard_dev and args.hazard_dev.exists():
         numbers.update(hazard_dev_numbers(json.loads(args.hazard_dev.read_text())))
     md_dir = args.manuscript_dir
