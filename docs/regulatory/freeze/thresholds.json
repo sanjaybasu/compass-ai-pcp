@@ -1,0 +1,244 @@
+{
+  "final_configuration": "ai_pcp_v3",
+  "models": {
+    "deliberate": "anthropic:claude-opus-5-5",
+    "second": "google:gemini-3.8-flash",
+    "hazard_llm": "anthropic:claude-sonnet-5-5",
+    "kev": "kev-4b@v1.0",
+    "grader": "openai:gpt-4.1-2025-04-14"
+  },
+  "workup": {
+    "question_budget": 12,
+    "questions_per_message": 2,
+    "eta": 0.5,
+    "lambda_cost": 0.0,
+    "lambda_risk": 0.0,
+    "enforce_stopping_rule": true,
+    "bayes_rule_out_authority": false,
+    "question_policy": "obligation",
+    "fixed_question_order": false
+  },
+  "clinical_content_sha256": "a2737820d9a78fbbfad980b3e96020b1b11fd0ddf8dae0c66e337c848e7091a0",
+  "hazard_rule": {
+    "flag": "ledger hazard tier >= routine_followup, keeping the higher of the Kev and LLM screen tiers",
+    "kev_routine_cumulative": 0.5,
+    "kev_urgent_cumulative": 0.15,
+    "kev_possible_emergency_cumulative": 0.5,
+    "kev_emergency_now": 0.5,
+    "fixed_on": "Cohort A tuning half (1,001 messages), VVP-PCP-001 Section 8.5"
+  },
+  "cohort_a": {
+    "salt": "compass-pcp-cohort-a-v1",
+    "VE_A4": {
+      "positive": "hazard true and hazard_category not other_hazard, or action_truth Call 911/988",
+      "pass": "0 missed Call 911/988 and lower Wilson 95% bound of sensitivity >= 0.80"
+    },
+    "VE_A5": {
+      "positive": "hazard_category other_hazard",
+      "pass": "report only"
+    },
+    "secondary": "harness/cohort_a.py::analyze: each screen alone, deterministic floors, AUROC with bootstrap 95%, PPV, flags per 1,000, net benefit at 0.02/0.05/0.10, recall by category, exact McNemar vs floors"
+  },
+  "healthbench": {
+    "subset": "consensus",
+    "split_salt": "compass-pcp-healthbench-v1",
+    "dev_frac": 0.2,
+    "repeats": 3,
+    "grader": "openai:gpt-4.1-2025-04-14",
+    "grader2": "google:gemini-3.1-pro-preview@LOW",
+    "configs": [
+      "ai_pcp_v3",
+      "raw_llm",
+      "llm_standard_guardrails",
+      "amie_style",
+      "mai_dxo_style"
+    ],
+    "comparator_backbone": "anthropic:claude-opus-5-5",
+    "secondary": {
+      "grader2_agreement": "same responses regraded by grader2; scores, paired differences and per-criterion AC1",
+      "physician_sample": {
+        "n": 100,
+        "seed": 20261028,
+        "arms": [
+          "ai_pcp_v3",
+          "raw_llm"
+        ],
+        "raters_min": 2,
+        "selection": "stratified by theme, first repeat",
+        "script": "scripts/physician_packet.py"
+      },
+      "by_theme_and_axis": true,
+      "tokens_and_calls_per_conversation": true
+    }
+  },
+  "hypotheses": [
+    {
+      "id": "P1",
+      "family": "primary",
+      "contrast": [
+        "ai_pcp_v3",
+        "raw_llm"
+      ],
+      "endpoint": "cannot_miss_sensitivity",
+      "cohort": "C",
+      "kind": "superiority",
+      "margin": null
+    },
+    {
+      "id": "P2",
+      "family": "primary",
+      "contrast": [
+        "ai_pcp_v3",
+        "llm_standard_guardrails"
+      ],
+      "endpoint": "cannot_miss_sensitivity",
+      "cohort": "C",
+      "kind": "superiority",
+      "margin": null
+    },
+    {
+      "id": "P3",
+      "family": "primary",
+      "contrast": [
+        "ai_pcp_v3",
+        "amie_style"
+      ],
+      "endpoint": "cannot_miss_sensitivity",
+      "cohort": "C",
+      "kind": "superiority",
+      "margin": null
+    },
+    {
+      "id": "P4",
+      "family": "primary",
+      "contrast": [
+        "ai_pcp_v3",
+        "mai_dxo_style"
+      ],
+      "endpoint": "cannot_miss_sensitivity",
+      "cohort": "C",
+      "kind": "superiority",
+      "margin": null
+    },
+    {
+      "id": "HB1",
+      "family": "healthbench",
+      "contrast": [
+        "ai_pcp_v3",
+        "raw_llm"
+      ],
+      "endpoint": "healthbench_consensus_criterion_pass_rate",
+      "cohort": "HB",
+      "kind": "noninferiority",
+      "margin": 0.02
+    },
+    {
+      "id": "HB2",
+      "family": "healthbench_secondary",
+      "contrast": [
+        "ai_pcp_v3",
+        "raw_llm"
+      ],
+      "endpoint": "healthbench_mean_score",
+      "cohort": "HB",
+      "kind": "superiority",
+      "margin": null
+    },
+    {
+      "id": "HB3",
+      "family": "healthbench_secondary",
+      "contrast": [
+        "ai_pcp_v3",
+        "llm_standard_guardrails"
+      ],
+      "endpoint": "healthbench_mean_score",
+      "cohort": "HB",
+      "kind": "superiority",
+      "margin": null
+    },
+    {
+      "id": "HB4",
+      "family": "healthbench_secondary",
+      "contrast": [
+        "ai_pcp_v3",
+        "amie_style"
+      ],
+      "endpoint": "healthbench_mean_score",
+      "cohort": "HB",
+      "kind": "superiority",
+      "margin": null
+    },
+    {
+      "id": "HB5",
+      "family": "healthbench_secondary",
+      "contrast": [
+        "ai_pcp_v3",
+        "mai_dxo_style"
+      ],
+      "endpoint": "healthbench_mean_score",
+      "cohort": "HB",
+      "kind": "superiority",
+      "margin": null
+    },
+    {
+      "id": "A1",
+      "family": "ablation",
+      "contrast": [
+        "ai_pcp",
+        "ai_pcp_minus_stopping_rule"
+      ],
+      "endpoint": "cannot_miss_sensitivity",
+      "cohort": "C",
+      "kind": "superiority",
+      "margin": null
+    },
+    {
+      "id": "A2",
+      "family": "ablation",
+      "contrast": [
+        "ai_pcp",
+        "ai_pcp_minus_second_extractor"
+      ],
+      "endpoint": "cannot_miss_sensitivity",
+      "cohort": "C",
+      "kind": "superiority",
+      "margin": null
+    },
+    {
+      "id": "A3",
+      "family": "ablation",
+      "contrast": [
+        "ai_pcp",
+        "ai_pcp_minus_rule_gate"
+      ],
+      "endpoint": "cannot_miss_sensitivity",
+      "cohort": "C",
+      "kind": "superiority",
+      "margin": null
+    },
+    {
+      "id": "A4",
+      "family": "ablation",
+      "contrast": [
+        "ai_pcp",
+        "ai_pcp_gate_advisory_not_blocking"
+      ],
+      "endpoint": "cannot_miss_sensitivity",
+      "cohort": "C",
+      "kind": "superiority",
+      "margin": null
+    },
+    {
+      "id": "A5",
+      "family": "ablation",
+      "contrast": [
+        "ai_pcp",
+        "ai_pcp_minus_next_question_selection"
+      ],
+      "endpoint": "cannot_miss_sensitivity",
+      "cohort": "C",
+      "kind": "superiority",
+      "margin": null
+    }
+  ]
+}

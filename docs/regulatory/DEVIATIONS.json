@@ -1,0 +1,29 @@
+{
+ "deviations": [
+  {
+   "id": "D1",
+   "date_utc": "2026-10-29T15:45Z",
+   "commit": "a4bee034615879a0def08d5f4cd4c4b6662840e7",
+   "path": "compass_pcp/arms/baselines.py",
+   "blob": "7f26093802ab3a80ef1d61adcb7da0e4dce925f9",
+   "reason": "During the HealthBench test run the backbone returned an empty draft and the guardrail comparator sent it to its output check, which the API rejects. The comparator now returns its clinician handoff for an empty draft, as it does for a blocked draft. Only the llm_standard_guardrails configuration runs this code; its cached test replies are unchanged.",
+   "cache_note": "The response-cache name hashes all comparator code, so D1 changed it (9a4fc13b18 to 30eb0d8b76). The amie_style and mai_dxo_style replies cached under the old name do not run the changed code, so the new name links to the old cache file and they are replayed, not regenerated."
+  },
+  {
+   "id": "D1",
+   "date_utc": "2026-10-29T15:45Z",
+   "commit": "a4bee034615879a0def08d5f4cd4c4b6662840e7",
+   "path": "compass_pcp/harness/frozen.py",
+   "blob": "067a12bdc6dec8105755a05a7fae702d1da8ae74",
+   "reason": "The freeze check accepts an executable change only when this file lists the file with the git blob hash of its current contents."
+  },
+  {
+   "id": "D2",
+   "date_utc": "2026-10-30T04:00Z",
+   "commit": "fd747536e2a2dd70a0a5874037aaade582d55820",
+   "path": "scripts/run_healthbench.py",
+   "blob": "288bf687fca03babb060726d18f050023d48969c",
+   "reason": "During the second-grader pass the Gemini grader blocked one grading prompt (PROHIBITED_CONTENT; a question about puberty in a 12-year-old) and replied with no text on every attempt, so the HealthBench grading loop retried without end. A grader that gives no text on three attempts now scores the rubric item as not met. Replies and primary-grader labels are unchanged."
+  }
+ ]
+}

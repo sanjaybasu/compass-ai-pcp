@@ -1,0 +1,19 @@
+{
+  "node_id": "j9n72",
+  "uploaded": [
+    "CUSTODIAN_RUNBOOK.md",
+    "FID-PCP-001_comparator_fidelity.md",
+    "RAW-PCP-001_risk_analysis.md",
+    "VVP-PCP-001_retrospective_validation_protocol.md",
+    "freeze_cohort_a.json",
+    "freeze_healthbench.json",
+    "hb_test_ids.json",
+    "pytest_at_freeze.txt",
+    "thresholds.json"
+  ],
+  "draft_id": "6ae289158eb12b7c25cbde9c",
+  "registration_id": "aypqk",
+  "url": "https://osf.io/aypqk",
+  "doi": "https://doi.org/10.17605/OSF.IO/AYPQK",
+  "approved": "2026-10-30 (OSF reviews_state accepted; public)"
+}
