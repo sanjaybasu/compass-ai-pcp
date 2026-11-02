@@ -9,9 +9,10 @@
    mentions a care team or nurse.
 5. Patient overlap: hazard sensitivity of the frozen screens on sealed messages from patients with no message in the
    tuning half.
+6. Patient groups: flag rate, specificity and hazards flagged on the sealed half by sex, race and ethnicity, and age group.
 
 Usage: python -m paper.sensitivity --hb-run <dir> --physician-packet <dir> --ratings <csv> <csv> \\
-           --per-message <per_message.jsonl> --tune-ids <json> --test-ids <json> --notes <encounter notes.csv> > out.json
+           --per-message <per_message.jsonl> --tune-ids <json> --test-ids <json> --notes <encounter notes.csv> --members <member_attributes.parquet> > out.json
 Writes aggregate numbers only.
 """
 
@@ -139,6 +140,63 @@ def patient_overlap(per_message: Path, tune_ids: Path, test_ids: Path, notes: Pa
             "call_911": len(e), "call_911_caught": sum(r["flags"]["frozen"] for r in e)}
 
 
+def _race(v: str) -> str:
+    v = " ".join(str(v).split())
+    return {"Caucasian": "White", "African American": "Black", "Hispanic": "Hispanic"}.get(
+        v, "Unknown" if v in ("None", "Unknown", "nan", "") else "Other")
+
+
+def _age(birth, ref: str = "2026-01-01") -> str:
+    import pandas as pd
+
+    if pd.isna(birth):
+        return "Unknown"
+    a = (pd.Timestamp(ref) - pd.Timestamp(birth)).days / 365.25
+    return "under 35" if a < 35 else ("35 to 49" if a < 50 else ("50 to 64" if a < 65 else "65 or older"))
+
+
+def patient_groups(per_message: Path, test_ids: Path, notes: Path, members: Path) -> dict:
+    """Aggregate screen performance by patient group on the sealed half; no row-level output."""
+    import pandas as pd
+
+    patient = {}
+    with notes.open(newline="") as fh:
+        for r in csv.DictReader(fh):
+            r = {k.strip(): (v or "").strip() for k, v in r.items()}
+            patient[r["Encounter ID"]] = r["WaymarkId"]
+    ma = pd.read_parquet(members, columns=["waymark_patient_number", "gender", "ethnicity", "birth_date"])
+    ma["waymark_patient_number"] = ma["waymark_patient_number"].astype(str).str.strip()
+    ma = ma.drop_duplicates("waymark_patient_number").set_index("waymark_patient_number")
+    test = json.loads(test_ids.read_text())
+    test = set(test if isinstance(test, list) else test["ids"])
+    rows = [json.loads(line) for line in per_message.open()]
+    rows = [r for r in rows if r["id"] in test]
+    out: dict = {}
+    for dim in ("sex", "race_ethnicity", "age_group"):
+        groups: dict[str, list[dict]] = defaultdict(list)
+        for r in rows:
+            m = ma.loc[patient[r["id"]]] if patient.get(r["id"]) in ma.index else None
+            if m is None:
+                g = "Unknown"
+            elif dim == "sex":
+                g = {"F": "Female", "M": "Male"}.get(str(m["gender"]).upper(), "Unknown")
+            elif dim == "race_ethnicity":
+                g = _race(m["ethnicity"])
+            else:
+                g = _age(m["birth_date"])
+            groups[g].append(r)
+        res = {}
+        for g, rs in sorted(groups.items()):
+            neg = [r for r in rs if not r["safety_positive"]]
+            pos = [r for r in rs if r["safety_positive"]]
+            tn = sum(not r["flags"]["frozen"] for r in neg)
+            res[g] = {"n": len(rs), "flags_per_1000": 1000 * sum(r["flags"]["frozen"] for r in rs) / len(rs),
+                      "specificity": tn / len(neg) if neg else None, "specificity_wilson95": wilson(tn, len(neg)) if neg else None,
+                      "positives": len(pos), "caught": sum(r["flags"]["frozen"] for r in pos)}
+        out[dim] = res
+    return out
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--hb-run", type=Path, required=True)
@@ -148,10 +206,12 @@ def main() -> None:
     ap.add_argument("--tune-ids", type=Path, required=True)
     ap.add_argument("--test-ids", type=Path, required=True)
     ap.add_argument("--notes", type=Path, required=True)
+    ap.add_argument("--members", type=Path, required=True)
     a = ap.parse_args()
     print(json.dumps({"repeats": repeats(a.hb_run), "by_theme": by_theme(a.hb_run), "equivalence": equivalence(a.hb_run),
                       "physician_blinding": physician_blinding(a.hb_run, a.physician_packet, a.ratings),
-                      "patient_overlap": patient_overlap(a.per_message, a.tune_ids, a.test_ids, a.notes)}, indent=1))
+                      "patient_overlap": patient_overlap(a.per_message, a.tune_ids, a.test_ids, a.notes),
+                      "patient_groups": patient_groups(a.per_message, a.test_ids, a.notes, a.members)}, indent=1))
 
 
 if __name__ == "__main__":

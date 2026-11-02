@@ -221,6 +221,14 @@ def sensitivity_numbers(s: dict) -> dict:
     out["sens_ovl_excl"], out["sens_ovl_n"] = str(po["n_excluded"]), str(po["n_messages"])
     out["sens_ovl_sens"] = f"{po['caught']} of {po['positives']} ({po['sensitivity']:.3f}; 95% CI, {po['wilson95'][0]:.3f} to {po['wilson95'][1]:.3f})"
     out["sens_ovl_911"] = f"{po['call_911_caught']} of {po['call_911']}"
+    pg = s.get("patient_groups")
+    if pg:
+        known = [v for dim in pg.values() for g, v in dim.items() if g != "Unknown" and v["n"] >= 30]
+        out["sens_grp_flag_range"] = f"{min(v['flags_per_1000'] for v in known):.0f} to {max(v['flags_per_1000'] for v in known):.0f}"
+        out["sens_grp_spec_range"] = f"{min(v['specificity'] for v in known):.3f} to {max(v['specificity'] for v in known):.3f}"
+        sx = pg["sex"]
+        out["sens_grp_female"] = f"{sx['Female']['caught']} of {sx['Female']['positives']}"
+        out["sens_grp_male"] = f"{sx['Male']['caught']} of {sx['Male']['positives']}"
     return out
 
 

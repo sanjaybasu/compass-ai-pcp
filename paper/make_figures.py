@@ -17,22 +17,22 @@ from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 # Validated categorical palette (dataviz reference instance, light mode); every mark is also direct-labeled.
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"]
-INK, INK2, GRID, SURFACE = "#0b0b0b", "#52514e", "#e4e3df", "#fcfcfb"
+INK, INK2, GRID, SURFACE = "#0b0b0b", "#52514e", "#e4e3df", "#ffffff"
 ARM_ORDER = [("ai_pcp_v3", "COMPASS (frozen)"), ("raw_llm", "LLM alone"), ("llm_standard_guardrails", "Guardrail stack"),
              ("amie_style", "AMIE-style chain"), ("mai_dxo_style", "MAI-DxO-style panel")]
 SCREEN_ORDER = [("frozen", "COMPASS screens (frozen)"), ("kev_only", "Local judge alone"), ("llm_only", "LLM screen alone"),
-                ("floor_union", "Keyword and rule floors"), ("compass_keyword", "Keyword screen"),
-                ("compass_befast", "BE-FAST rule"), ("anchor_undertriage", "ANCHOR rules")]
+                ("floor_union", "Keyword and rule screens")]
 
-plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 9, "axes.edgecolor": INK2, "axes.labelcolor": INK,
+plt.rcParams.update({"font.family": ["Arial", "Helvetica", "DejaVu Sans"], "font.size": 9, "axes.edgecolor": INK2, "axes.labelcolor": INK,
                      "xtick.color": INK2, "ytick.color": INK2, "axes.spines.top": False, "axes.spines.right": False,
-                     "figure.facecolor": SURFACE, "axes.facecolor": SURFACE, "savefig.dpi": 300})
+                     "figure.facecolor": "white", "axes.facecolor": "white", "savefig.dpi": 300})
 
 
 def _save(fig, out: Path, name: str) -> None:
     out.mkdir(parents=True, exist_ok=True)
     for ext in ("png", "pdf"):
         fig.savefig(out / f"{name}.{ext}", bbox_inches="tight", facecolor=SURFACE)
+    fig.savefig(out / f"{name}.tiff", bbox_inches="tight", facecolor=SURFACE, dpi=600, pil_kwargs={"compression": "tiff_lzw"})
     plt.close(fig)
 
 

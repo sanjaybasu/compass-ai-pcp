@@ -57,6 +57,18 @@ def prompts_appendix() -> str:
     return "\n\n".join(f"*{name}.*\n\n```\n{text.strip()}\n```" for name, text in blocks) + "\n"
 
 
+SCREEN_NAMES = {"frozen": "COMPASS screens (frozen)", "frozen max tier": "COMPASS screens (frozen), highest tier",
+                "kev_only": "Local judge alone", "llm_only": "LLM screen alone", "floor_union": "Keyword and rule screens combined",
+                "compass_keyword": "Emergency keyword screen", "compass_befast": "Stroke symptom rule (BE-FAST)",
+                "anchor_undertriage": "Rule-based under-triage screen",
+                "kev_urgent_probability": "Local judge, probability of urgent or higher", "llm_tier": "LLM screen, urgency tier",
+                "frozen_max_tier": "COMPASS screens, highest urgency tier"}
+
+
+def _name(k: str) -> str:
+    return SCREEN_NAMES.get(k, SCREEN_NAMES.get(k.replace(" ", "_"), k.replace("_", " ")))
+
+
 def result_tables(numbers: dict) -> dict[str, str]:
     out = {}
     hb = numbers.get("_hb_analysis")
@@ -79,15 +91,15 @@ def result_tables(numbers: dict) -> dict[str, str]:
     if ca:
         rows = ["| Score | AUROC for safety hazards (bootstrap 95% CI) |", "| :-- | :-- |"]
         for k, v in ca["auroc_safety"].items():
-            rows.append(f"| {k.replace('_', ' ')} | {v['estimate']:.3f} ({v['bootstrap95'][0]:.3f} to {v['bootstrap95'][1]:.3f}) |")
+            rows.append(f"| {_name(k)} | {v['estimate']:.3f} ({v['bootstrap95'][0]:.3f} to {v['bootstrap95'][1]:.3f}) |")
         rows += ["", "| Screen | Net benefit at 0.02 | at 0.05 | at 0.10 |", "| :-- | :-- | :-- | :-- |"]
         for k, m in ca["screens"].items():
             nb = m["net_benefit"]
-            rows.append(f"| {k.replace('_', ' ')} | {nb['0.02']:.4f} | {nb['0.05']:.4f} | {nb['0.1']:.4f} |")
+            rows.append(f"| {_name(k)} | {nb['0.02']:.4f} | {nb['0.05']:.4f} | {nb['0.1']:.4f} |")
         rows += ["", "| Hazard category | Detected by the frozen screen |", "| :-- | :-- |"]
         rows += [f"| {c.replace('_', ' ')} | {v['caught']} of {v['positives']} |" for c, v in ca["recall_by_category"].items()]
         rows += ["", "| Screen compared with the frozen screen, on safety hazards | Frozen only | Other only | Exact P |", "| :-- | :-- | :-- | :-- |"]
-        rows += [f"| {k.replace('_', ' ')} | {v['frozen_only']} | {v['other_only']} | {v['p_exact']:.3f} |"
+        rows += [f"| {_name(k)} | {v['frozen_only']} | {v['other_only']} | {v['p_exact']:.3f} |"
                  for k, v in ca["mcnemar_vs_frozen_on_positives"].items()]
         out["s9_patient_message_secondary.md"] = "\n".join(rows) + "\n"
     s = numbers.get("_sensitivity")
@@ -111,6 +123,15 @@ def result_tables(numbers: dict) -> dict[str, str]:
                     f"{po['n_messages']} messages ({po['n_excluded']} excluded) | {po['caught']} of {po['positives']}, "
                     f"{po['sensitivity']:.3f} ({po['wilson95'][0]:.3f} to {po['wilson95'][1]:.3f}); emergency messages "
                     f"{po['call_911_caught']} of {po['call_911']} |")
+        pg = s.get("patient_groups")
+        if pg:
+            rows += ["", "| Patient group (sealed half) | Messages | Flags per 1,000 | Specificity (Wilson 95% CI) | Safety hazards flagged |",
+                     "| :-- | :-- | :-- | :-- | :-- |"]
+            for dim, lab in (("sex", "Sex"), ("race_ethnicity", "Race and ethnicity"), ("age_group", "Age group")):
+                for g, v in pg[dim].items():
+                    sp = (f"{v['specificity']:.3f} ({v['specificity_wilson95'][0]:.3f} to {v['specificity_wilson95'][1]:.3f})"
+                          if v["specificity"] is not None else "NA")
+                    rows.append(f"| {lab}: {g} | {v['n']} | {v['flags_per_1000']:.0f} | {sp} | {v['caught']} of {v['positives']} |")
         rows += ["", "| HealthBench theme | Conversations | COMPASS minus LLM alone, reference grader | COMPASS minus LLM alone, second grader |",
                  "| :-- | :-- | :-- | :-- |"]
         for th, v in s["by_theme"]["grader1"].items():
@@ -123,6 +144,9 @@ def fidelity_section() -> str:
     """Sections 2 to 7 of FID-PCP-001, unchanged, so the appendix and the controlled memo cannot differ."""
     text = (DATA_DIR.parents[1] / "docs" / "regulatory" / "FID-PCP-001_comparator_fidelity.md").read_text()
     body = text.split("## 2. ", 1)[1].split("## 8. ", 1)[0]
+    body = (body.replace("Tu et al., Nature 2025 (AMIE)", "AMIE[@tu2025amie]")
+            .replace("Vedadi et al. 2025 (guardrailed AMIE)", "guardrailed AMIE[@vedadi2025gamie]")
+            .replace("Nori et al., arXiv 2506.22405 (MAI Diagnostic Orchestrator)", "MAI Diagnostic Orchestrator[@nori2026sequential]"))
     return ("### 2. " + body).replace("\n## ", "\n### ").strip() + "\n"
 
 
