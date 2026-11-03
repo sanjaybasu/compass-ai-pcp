@@ -197,6 +197,55 @@ def patient_groups(per_message: Path, test_ids: Path, notes: Path, members: Path
     return out
 
 
+def patient_clustered(per_message: Path, test_ids: Path, notes: Path) -> dict:
+    """Hazard sensitivity and specificity with a bootstrap that resamples patients, not messages."""
+    patient = {}
+    with notes.open(newline="") as fh:
+        for r in csv.DictReader(fh):
+            r = {k.strip(): (v or "").strip() for k, v in r.items()}
+            patient[r["Encounter ID"]] = r["WaymarkId"]
+    test = json.loads(test_ids.read_text())
+    test = set(test if isinstance(test, list) else test["ids"])
+    rows = [json.loads(line) for line in per_message.open()]
+    by_pt: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        if r["id"] in test:
+            by_pt[patient.get(r["id"], r["id"])].append(r)
+    pts = sorted(by_pt)
+    pos_pts = {p for p in pts if any(r["safety_positive"] for r in by_pt[p])}
+
+    def stats(sample):
+        rs = [r for p in sample for r in by_pt[p]]
+        pos = [r for r in rs if r["safety_positive"]]
+        neg = [r for r in rs if not r["safety_positive"]]
+        return (sum(r["flags"]["frozen"] for r in pos) / len(pos) if pos else float("nan"),
+                sum(not r["flags"]["frozen"] for r in neg) / len(neg))
+
+    rng = random.Random(SEED)
+    boots = [stats([pts[rng.randrange(len(pts))] for _ in pts]) for _ in range(N_BOOT)]
+    sens = sorted(b[0] for b in boots if b[0] == b[0])
+    spec = sorted(b[1] for b in boots)
+    q = lambda xs, f: xs[min(len(xs) - 1, int(f * len(xs)))]
+    s0, sp0 = stats(pts)
+    return {"n_patients": len(pts), "patients_with_hazard": len(pos_pts), "sensitivity": s0,
+            "sensitivity_ci95": [q(sens, 0.025), q(sens, 0.975)], "specificity": sp0, "specificity_ci95": [q(spec, 0.025), q(spec, 0.975)]}
+
+
+def physician_preferences(packet: Path, ratings: list[Path]) -> dict:
+    """Overall preference of each physician between the COMPASS reply and the LLM-alone reply."""
+    key = json.loads((packet / "physician_key.json").read_text())["items"]
+    out = []
+    for path in ratings:
+        c = {"compass": 0, "llm_alone": 0, "tie": 0}
+        with path.open(encoding="utf-8-sig") as fh:
+            for r in csv.DictReader(fh):
+                if r["response"] == "A" and r["criterion_index"] == "0":
+                    v = r["preferred"].strip()
+                    c["tie" if v == "tie" else ("compass" if key[r["prompt_id"]][v] == FINAL else "llm_alone")] += 1
+        out.append(c)
+    return {"raters": out, "total": {k: sum(o[k] for o in out) for k in ("compass", "llm_alone", "tie")}}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--hb-run", type=Path, required=True)
@@ -211,7 +260,9 @@ def main() -> None:
     print(json.dumps({"repeats": repeats(a.hb_run), "by_theme": by_theme(a.hb_run), "equivalence": equivalence(a.hb_run),
                       "physician_blinding": physician_blinding(a.hb_run, a.physician_packet, a.ratings),
                       "patient_overlap": patient_overlap(a.per_message, a.tune_ids, a.test_ids, a.notes),
-                      "patient_groups": patient_groups(a.per_message, a.test_ids, a.notes, a.members)}, indent=1))
+                      "patient_groups": patient_groups(a.per_message, a.test_ids, a.notes, a.members),
+                      "patient_clustered": patient_clustered(a.per_message, a.test_ids, a.notes),
+                      "physician_preferences": physician_preferences(a.physician_packet, a.ratings)}, indent=1))
 
 
 if __name__ == "__main__":

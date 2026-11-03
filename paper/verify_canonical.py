@@ -12,7 +12,7 @@ import re
 import sys
 from pathlib import Path
 
-from paper.build_canonical import blinding_numbers, sensitivity_numbers, cohort_a_numbers, tier_numbers, hazard_dev_numbers, hb_numbers, physician_numbers, static_numbers
+from paper.build_canonical import ablation_numbers, blinding_numbers, path_numbers, sensitivity_numbers, cohort_a_numbers, tier_numbers, hazard_dev_numbers, hb_numbers, physician_numbers, static_numbers
 
 
 def main() -> None:
@@ -23,6 +23,8 @@ def main() -> None:
     ap.add_argument("--hazard-dev", type=Path)
     ap.add_argument("--physician-packet", type=Path)
     ap.add_argument("--sensitivity", type=Path)
+    ap.add_argument("--paths", type=Path)
+    ap.add_argument("--ablation", type=Path)
     ap.add_argument("--freeze-dir", type=Path, required=True)
     ap.add_argument("--manuscript-dir", type=Path, required=True)
     args = ap.parse_args()
@@ -36,6 +38,10 @@ def main() -> None:
         fresh.update(physician_numbers(json.loads(args.physician.read_text())))
     if args.physician_packet and (args.physician_packet / "physician_key.json").exists():
         fresh.update(blinding_numbers(args.physician_packet))
+    if args.paths and args.paths.exists():
+        fresh.update(path_numbers(args.paths, args.hb_run))
+    if args.ablation and (args.ablation / "ai_pcp_v3__grader2.json").exists():
+        fresh.update(ablation_numbers(args.ablation, args.hb_run))
     if args.sensitivity and args.sensitivity.exists():
         fresh.update(sensitivity_numbers(json.loads(args.sensitivity.read_text())))
     if args.hazard_dev and args.hazard_dev.exists():

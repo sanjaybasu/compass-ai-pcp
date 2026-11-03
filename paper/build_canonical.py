@@ -13,6 +13,7 @@ visible, never silently filled.
 import argparse
 import json
 import re
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from compass_pcp.harness import frozen
@@ -81,6 +82,9 @@ def hb_numbers(run: Path) -> dict:
     out["hb_clusters_better"] = str(sum(v["holm_significant"] and v["a_only"] > v["b_only"] for v in cl.values()))
     if "grader2" in res:
         g2 = res["grader2"]
+        h2 = g2["HB1"]
+        out["hb1g2_diff"] = diff(h2["diff"], *h2["ci95"])
+        out["hb1g2_verb"] = "was met" if h2["noninferior"] else "was not met"
         out["hb2_score_final"], out["hb2_score_raw"] = f3(g2["scores"][ARMS["final"]]["mean"]), f3(g2["scores"][ARMS["raw"]]["mean"])
         for k in ("raw", "guard", "amie", "maidxo"):
             s = g2["superiority"][ARMS[k]]
@@ -185,6 +189,9 @@ def blinding_numbers(packet: Path) -> dict:
             "phys_careteam_raw": f"{hits['raw_llm'][0]} of {hits['raw_llm'][1]}"}
 
 
+CATEGORY_WORDS = {"behavioral_suicidality": "suicidality", "substance_use": "substance use"}
+
+
 def tier_numbers(per_message: Path) -> dict:
     """Highest hazard tier (0 none, 1 routine, 2 urgent same day, 3 possible emergency, 4 emergency now) for emergency
     messages and safety hazards in the sealed half."""
@@ -194,8 +201,15 @@ def tier_numbers(per_message: Path) -> dict:
     top = lambda r: max(r["kev_tier"], r["llm_tier"])
     e = [top(r) for r in rows if r["call_911"]]
     s = [top(r) for r in rows if r["safety_positive"]]
+    cats: dict[str, int] = {}
+    for r in rows:
+        if r["call_911"]:
+            c = CATEGORY_WORDS.get(r["category"], str(r["category"]).replace("_", " "))
+            cats[c] = cats.get(c, 0) + 1
+    parts = [f"{k} ({v})" for k, v in sorted(cats.items(), key=lambda kv: (-kv[1], kv[0]))]
     return {"ca_911_urgent": str(sum(x >= 2 for x in e)), "ca_911_possible": str(sum(x >= 3 for x in e)),
-            "ca_911_now": str(sum(x >= 4 for x in e)), "ca_safety_urgent": str(sum(x >= 2 for x in s))}
+            "ca_911_now": str(sum(x >= 4 for x in e)), "ca_safety_urgent": str(sum(x >= 2 for x in s)),
+            "ca_911_categories": parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]}
 
 
 def sensitivity_numbers(s: dict) -> dict:
@@ -221,14 +235,152 @@ def sensitivity_numbers(s: dict) -> dict:
     out["sens_ovl_excl"], out["sens_ovl_n"] = str(po["n_excluded"]), str(po["n_messages"])
     out["sens_ovl_sens"] = f"{po['caught']} of {po['positives']} ({po['sensitivity']:.3f}; 95% CI, {po['wilson95'][0]:.3f} to {po['wilson95'][1]:.3f})"
     out["sens_ovl_911"] = f"{po['call_911_caught']} of {po['call_911']}"
+    pc = s.get("patient_clustered")
+    if pc:
+        out["clust_hazard_patients"] = str(pc["patients_with_hazard"])
+        out["clust_sens"] = f"{pc['sensitivity']:.3f} (95% CI, {pc['sensitivity_ci95'][0]:.3f} to {pc['sensitivity_ci95'][1]:.3f})"
+    pp = s.get("physician_preferences")
+    if pp:
+        tot = pp["total"]; n = sum(tot.values())
+        out["phys_pref"] = (f"{tot['compass']} of {n} judgments preferred the COMPASS reply, {tot['llm_alone']} preferred the LLM "
+                            f"alone, and {tot['tie']} were ties")
     pg = s.get("patient_groups")
     if pg:
-        known = [v for dim in pg.values() for g, v in dim.items() if g != "Unknown" and v["n"] >= 30]
+        known = [v for dim in pg.values() for g, v in dim.items() if v["n"] >= 30]
         out["sens_grp_flag_range"] = f"{min(v['flags_per_1000'] for v in known):.0f} to {max(v['flags_per_1000'] for v in known):.0f}"
         out["sens_grp_spec_range"] = f"{min(v['specificity'] for v in known):.3f} to {max(v['specificity'] for v in known):.3f}"
         sx = pg["sex"]
         out["sens_grp_female"] = f"{sx['Female']['caught']} of {sx['Female']['positives']}"
         out["sens_grp_male"] = f"{sx['Male']['caught']} of {sx['Male']['positives']}"
+    return out
+
+
+def path_numbers(paths: Path, run: Path | None = None) -> dict:
+    """Post hoc router re-run (paper/route_paths.py): share of test conversations on each reply path, and the COMPASS
+    minus LLM-alone score difference within each path under each grader."""
+    rows = [json.loads(line) for line in paths.open()]
+    n = len(rows)
+    out = {"path_n": f"{n:,}"}
+    for k in ("engine", "clinician", "general"):
+        c = sum(r["path"] == k for r in rows)
+        out[f"path_{k}"] = f"{c:,} of {n:,} ({100 * c / n:.1f}%)"
+    if run is not None and (run / "ai_pcp_v3.json").exists():
+        from compass_pcp.harness.hb_analysis import load
+        from paper.sensitivity import _boot_diff
+
+        path = {r["prompt_id"]: r["path"] for r in rows}
+        for g, suffix in (("g1", ""), ("g2", "__grader2")):
+            a, b = load(run / f"ai_pcp_v3{suffix}.json")["score"], load(run / f"raw_llm{suffix}.json")["score"]
+            for k in ("engine", "clinician", "general"):
+                ids = [p for p in a if p in b and path.get(p) == k]
+                out[f"path_{k}_{g}"] = diff(*_boot_diff([a[p] - b[p] for p in ids], 0.025, 0.975))
+    return out
+
+ABLATIONS = {"engine_off": "eoff", "minus_stopping_rule": "stop", "fixed_question_order": "order",
+             "rule_out_authority": "ruleout", "eig_questions": "eig", "single_extractor": "single"}
+ENGINE_DECISIONS = ("ask", "defer", "complete")
+COMPONENT_NAMES = {"stop": "the stopping rule", "order": "the question order", "ruleout": "the rule-out rule",
+                   "eig": "the question policy", "single": "the second extractor"}
+ABLATION_LABELS = {"eoff": "No engine decision", "stop": "No stopping rule", "order": "Fixed question order",
+                   "ruleout": "Rule-out on probability alone", "eig": "Questions by information gain",
+                   "single": "One extractor"}
+
+
+def _slot_scores(abl: Path, arm: str, suffix: str, replies: dict) -> dict:
+    """Score of each (prompt_id, repeat) slot: simple-evals reports per-example scores without the repeat, so each
+    example is matched to a slot of that conversation with the same reply text."""
+    free = defaultdict(list)
+    for (a, pid, rep), text in replies.items():
+        if a == arm:
+            free[(pid, text)].append(rep)
+    out = {}
+    for e in json.loads((abl / f"{arm}__{suffix}.json").read_text())["example_level"]:
+        text = e["completion"][0]["content"] if isinstance(e["completion"], list) else str(e["completion"])
+        rep = free[(e["prompt_id"], text)].pop(0)
+        out[(e["prompt_id"], rep)] = max(0.0, min(1.0, e["score"]))
+    return out
+
+
+def _clustered_diff(a: dict, b: dict, slots: list, raw: bool = False):
+    """Mean slot difference a - b, with a bootstrap over conversations (slots averaged within each conversation)."""
+    from paper.sensitivity import _boot_diff
+
+    by = defaultdict(list)
+    for s in slots:
+        by[s[0]].append(a[s] - b[s])
+    r = _boot_diff([sum(v) / len(v) for v in by.values()], 0.025, 0.975)
+    return r if raw else diff(*r)
+
+
+def ablation_numbers(abl: Path, run: Path | None = None) -> dict:
+    """Paired ablations (paper/ablation_staged.py, amendment AMD-PCP-001): recorded reply paths of the re-run frozen
+    system, its score next to the registered run, and the score change when one component is removed."""
+    replies, paths = {}, {}
+    for line in (abl / "replies.jsonl").read_text().splitlines():
+        r = json.loads(line)
+        replies[(r["arm"], r["prompt_id"], r["repeat"])] = r["text"]
+        paths[(r["arm"], r["prompt_id"], r["repeat"])] = r["path"]
+    base = {(p, rep): v for (a, p, rep), v in paths.items() if a == "ai_pcp_v3"}
+    n = len(base)
+    engine = [s for s, v in base.items() if v["decision"] in ENGINE_DECISIONS
+              or (v["decision"] == "escalate" and "escalate" in (v["decisions"] or []) and v["hazard_tier"] != "EMERGENCY_NOW")]
+    clinician = [s for s, v in base.items() if v["user_type"] == "health_professional"]
+    out = {"abl_n_replies": f"{n:,}", "abl_n_conversations": f"{len({p for p, _ in base}):,}",
+           "abl_engine_decided": prop(len(engine), n), "abl_clinician": prop(len(clinician), n),
+           "abl_engine_contributed": prop(sum(bool(v["decisions"]) for v in base.values()), n)}
+    kinds = Counter(base[s]["decision"] for s in engine)
+    decided = set(engine)
+    out["abl_eoff_other_changed"] = f"{sum(replies[('engine_off', p, rep)] != replies[('ai_pcp_v3', p, rep)] for p, rep in base if (p, rep) not in decided):,}"
+    out["abl_engine_conversations"] = f"{len({p for p, _ in engine}):,}"
+    for kind in ("ask", "defer", "complete", "escalate"):
+        out[f"abl_engine_{kind}"] = f"{kinds[kind]:,}"
+    for g, suffix in (("g1", "grader"), ("g2", "grader2")):
+        v3 = _slot_scores(abl, "ai_pcp_v3", suffix, replies)
+        out[f"abl_rerun_{g}"] = f3(sum(v3.values()) / len(v3))
+        if run is not None:
+            from compass_pcp.harness.hb_analysis import load
+
+            reg = load(run / f"ai_pcp_v3{'' if g == 'g1' else '__grader2'}.json")["score"]
+            pids = sorted({p for p, _ in v3} & set(reg))
+            conv = defaultdict(list)
+            for (p, _), x in v3.items():
+                conv[p].append(x)
+            re_mean = sum(sum(conv[p]) / len(conv[p]) for p in pids) / len(pids)
+            reg_mean = sum(reg[p] for p in pids) / len(pids)
+            out[f"abl_registered_{g}"] = f3(reg_mean)
+            out[f"abl_rerun_minus_registered_{g}"] = f"{re_mean - reg_mean:+.3f}"
+        for arm, k in ABLATIONS.items():
+            other = _slot_scores(abl, arm, suffix, replies)
+            r = _clustered_diff(v3, other, engine, raw=True)
+            out[f"abl_{k}_engine_{g}"] = diff(*r)
+            if k == "eoff":
+                out[f"abl_eoff_engine_{g}_hi"] = f"{r[2]:+.4f}"
+            out[f"abl_{k}_all_{g}"] = _clustered_diff(v3, other, list(base))
+    n_changed = {}
+    for arm, k in ABLATIONS.items():
+        n_changed[k] = sum(replies[(arm, p, rep)] != replies[("ai_pcp_v3", p, rep)] for p, rep in base)
+        out[f"abl_{k}_changed"] = prop(n_changed[k], n)
+    comps = [k for k in ABLATIONS.values() if k != "eoff"]
+    lo, hi = min(n_changed[k] for k in comps), max(n_changed[k] for k in comps)
+
+    def excludes_zero(k):  # the 95% CI on engine-decided replies excludes zero under both graders, with one sign
+        signs = set()
+        for g in ("g1", "g2"):
+            d, a, b = (float(x) for x in re.findall(r"[+-]?\d+\.\d+", out[f"abl_{k}_engine_{g}"]))
+            if a <= 0 <= b:
+                return False
+            signs.add(d > 0)
+        return len(signs) == 1
+
+    shifted = [COMPONENT_NAMES[k] for k in comps if excludes_zero(k)]
+    out["abl_component_sentence"] = (
+        f"Changing one engine component changed between {lo:,} and {hi:,} of {n:,} replies, and "
+        + ("no single change shifted the score on engine-decided replies under both graders." if not shifted else
+           f"changing {', '.join(shifted[:-1]) + ' and ' + shifted[-1] if len(shifted) > 1 else shifted[0]} shifted the "
+           "score on engine-decided replies under both graders."))
+    out["abl_table_rows"] = "\n".join(
+        f"| {ABLATION_LABELS[k]} | {out[f'abl_{k}_changed']} | {out[f'abl_{k}_engine_g1']} | {out[f'abl_{k}_engine_g2']} "
+        f"| {out[f'abl_{k}_all_g1']} | {out[f'abl_{k}_all_g2']} |" for k in ABLATIONS.values())
     return out
 
 
@@ -275,6 +427,8 @@ def main() -> None:
     ap.add_argument("--hazard-dev", type=Path)
     ap.add_argument("--physician-packet", type=Path)
     ap.add_argument("--sensitivity", type=Path)
+    ap.add_argument("--paths", type=Path)
+    ap.add_argument("--ablation", type=Path)
     ap.add_argument("--freeze-dir", type=Path, required=True)
     ap.add_argument("--manuscript-dir", type=Path, required=True)
     ap.add_argument("--prose", type=Path)
@@ -289,6 +443,10 @@ def main() -> None:
         numbers.update(physician_numbers(json.loads(args.physician.read_text())))
     if args.physician_packet and (args.physician_packet / "physician_key.json").exists():
         numbers.update(blinding_numbers(args.physician_packet))
+    if args.paths and args.paths.exists():
+        numbers.update(path_numbers(args.paths, args.hb_run))
+    if args.ablation and (args.ablation / "ai_pcp_v3__grader2.json").exists():
+        numbers.update(ablation_numbers(args.ablation, args.hb_run))
     if args.sensitivity and args.sensitivity.exists():
         numbers.update(sensitivity_numbers(json.loads(args.sensitivity.read_text())))
     if args.hazard_dev and args.hazard_dev.exists():

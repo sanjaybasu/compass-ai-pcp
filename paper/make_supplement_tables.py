@@ -3,6 +3,7 @@
 Usage: python -m paper.make_supplement_tables --manuscript-dir <notebooks/compass-ai-pcp/manuscript>
 """
 
+import re
 import argparse
 from collections import Counter
 from pathlib import Path
@@ -69,6 +70,14 @@ def _name(k: str) -> str:
     return SCREEN_NAMES.get(k, SCREEN_NAMES.get(k.replace(" ", "_"), k.replace("_", " ")))
 
 
+ARM_NAMES = {"ai_pcp_v3": "COMPASS", "raw_llm": "LLM alone", "llm_standard_guardrails": "Guardrail stack",
+             "amie_style": "AMIE-style chain", "mai_dxo_style": "MAI-DxO-style panel"}
+
+
+def _p(x: float) -> str:
+    return "<0.001" if x < 0.001 else f"{x:.3f}"
+
+
 def result_tables(numbers: dict) -> dict[str, str]:
     out = {}
     hb = numbers.get("_hb_analysis")
@@ -78,11 +87,11 @@ def result_tables(numbers: dict) -> dict[str, str]:
                 "| :-- | :-- | :-- | :-- | :-- | :-- | :-- | :-- |"]
         for c, v in sorted(g1["by_cluster_vs_raw"].items()):
             rows.append(f"| {c.replace('_', ' ')} | {v['n']} | {v['rate_a']:.3f} | {v['rate_b']:.3f} | {v['a_only']} | {v['b_only']} | "
-                        f"{v['p_exact']:.3f} | {'Yes' if v['holm_significant'] else 'No'} |")
+                        f"{_p(v['p_exact'])} | {'Yes' if v['holm_significant'] else 'No'} |")
         out["s7_clusters.md"] = "\n".join(rows) + "\n"
         arms = list(g1["by_theme"])
         themes = sorted({t for a in arms for t in g1["by_theme"][a]})
-        rows = ["| Theme | " + " | ".join(arms) + " |", "| :-- |" + " :-- |" * len(arms)]
+        rows = ["| Theme | " + " | ".join(ARM_NAMES.get(a, a) for a in arms) + " |", "| :-- |" + " :-- |" * len(arms)]
         for t in themes:
             cells = [f"{g1['by_theme'][a][t]['mean_score']:.3f} (n = {g1['by_theme'][a][t]['n']})" if t in g1["by_theme"][a] else "NA" for a in arms]
             rows.append(f"| {t.replace('_', ' ')} | " + " | ".join(cells) + " |")
@@ -99,7 +108,7 @@ def result_tables(numbers: dict) -> dict[str, str]:
         rows += ["", "| Hazard category | Detected by the frozen screen |", "| :-- | :-- |"]
         rows += [f"| {c.replace('_', ' ')} | {v['caught']} of {v['positives']} |" for c, v in ca["recall_by_category"].items()]
         rows += ["", "| Screen compared with the frozen screen, on safety hazards | Frozen only | Other only | Exact P |", "| :-- | :-- | :-- | :-- |"]
-        rows += [f"| {_name(k)} | {v['frozen_only']} | {v['other_only']} | {v['p_exact']:.3f} |"
+        rows += [f"| {_name(k)} | {v['frozen_only']} | {v['other_only']} | {_p(v['p_exact'])} |"
                  for k, v in ca["mcnemar_vs_frozen_on_positives"].items()]
         out["s9_patient_message_secondary.md"] = "\n".join(rows) + "\n"
     s = numbers.get("_sensitivity")
@@ -123,6 +132,17 @@ def result_tables(numbers: dict) -> dict[str, str]:
                     f"{po['n_messages']} messages ({po['n_excluded']} excluded) | {po['caught']} of {po['positives']}, "
                     f"{po['sensitivity']:.3f} ({po['wilson95'][0]:.3f} to {po['wilson95'][1]:.3f}); emergency messages "
                     f"{po['call_911_caught']} of {po['call_911']} |")
+        pc = s.get("patient_clustered")
+        if pc:
+            rows.append(f"| Hazard sensitivity with a bootstrap over patients (95% CI) | {pc['n_patients']} patients; "
+                        f"{pc['patients_with_hazard']} with a hazard | {pc['sensitivity']:.3f} ({pc['sensitivity_ci95'][0]:.3f} to "
+                        f"{pc['sensitivity_ci95'][1]:.3f}); specificity {pc['specificity']:.3f} ({pc['specificity_ci95'][0]:.3f} to "
+                        f"{pc['specificity_ci95'][1]:.3f}) |")
+        pp = s.get("physician_preferences")
+        if pp:
+            for i, r in enumerate(pp["raters"], 1):
+                rows.append(f"| Physician {i} overall preference (100 conversations) | COMPASS / LLM alone / tie | "
+                            f"{r['compass']} / {r['llm_alone']} / {r['tie']} |")
         pg = s.get("patient_groups")
         if pg:
             rows += ["", "| Patient group (sealed half) | Messages | Flags per 1,000 | Specificity (Wilson 95% CI) | Safety hazards flagged |",
@@ -147,7 +167,14 @@ def fidelity_section() -> str:
     body = (body.replace("Tu et al., Nature 2025 (AMIE)", "AMIE[@tu2025amie]")
             .replace("Vedadi et al. 2025 (guardrailed AMIE)", "guardrailed AMIE[@vedadi2025gamie]")
             .replace("Nori et al., arXiv 2506.22405 (MAI Diagnostic Orchestrator)", "MAI Diagnostic Orchestrator[@nori2026sequential]"))
-    return ("### 2. " + body).replace("\n## ", "\n### ").strip() + "\n"
+    body = body.replace(" (VVP-PCP-001 Section 8.6)", "")
+    names = {"Rules shared by every arm": "Rules shared by every comparator", "Raw model (`raw_llm`)": "LLM alone",
+             "Conventional guardrail stack (`llm_standard_guardrails`)": "Guardrail stack",
+             "AMIE-style chain (`amie_style`)": "AMIE-style chain", "MAI-DxO-style panel (`mai_dxo_style`)": "MAI-DxO-style panel",
+             "Known limits of the comparison": "Known limits of the comparison"}
+    text = ("## 2. " + body)
+    text = re.sub(r"(?m)^## [0-9]+\. (.+)$", lambda m: "### " + names.get(m.group(1).strip(), m.group(1).strip()), text)
+    return text.strip() + "\n"
 
 
 def freeze_section(freeze_dir: Path) -> str | None:
